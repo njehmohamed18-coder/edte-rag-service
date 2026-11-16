@@ -1,12 +1,11 @@
 from typing import Any
 from src.graph.client import Neo4jClient, neo4j_client
 from src.services.embeddings import EmbeddingService, embedding_service
+from src.services.synthesis import SynthesisService, synthesis_service
 from src.models.domain import QueryRequest, QueryResponse, SourceCitation, GraphContextItem
 
-# 1. Vector similarity search on the Neo4j index
-# 2. Graph expansion matching 1 to 2 hops out from the text chunk
 HYBRID_SEARCH_CYPHER = """
-CALL db.index.vector.queryNodes('chunk_embedding_index', $top_k,$question_embedding)
+CALL db.index.vector.queryNodes('chunk_embedding_index', $top_k, $question_embedding)
 YIELD node AS chunk, score
 OPTIONAL MATCH (chunk)-[:REFERENCES*1..2]-(entity)
 RETURN chunk.urn AS chunk_urn,
@@ -21,15 +20,15 @@ class RetrievalService:
         self,
         client: Neo4jClient | None = None,
         embedder: EmbeddingService | None = None,
+        synthesizer: SynthesisService | None = None,
     ) -> None:
         self.client = client or neo4j_client
         self.embedder = embedder or embedding_service
+        self.synthesizer = synthesizer or synthesis_service
 
     def execute_query(self, request: QueryRequest) -> QueryResponse:
-        # Embed the incoming question
         question_embedding = self.embedder.embed_text(request.question)
         
-        # Execute the hybrid search in Neo4j
         records = self.client.execute_query(
             HYBRID_SEARCH_CYPHER,
             {
@@ -51,7 +50,6 @@ class RetrievalService:
                 )
             )
             
-            # Extract the 1-to-2 hop graph context
             for entity_urn in record.get("related_entities", []):
                 if entity_urn and entity_urn not in seen_entities:
                     seen_entities.add(entity_urn)
@@ -63,8 +61,15 @@ class RetrievalService:
                         )
                     )
                     
+        # Generate the final answer using the LLM
+        final_answer = self.synthesizer.generate_answer(
+            question=request.question,
+            sources=sources,
+            graph_context=graph_items,
+        )
+                    
         return QueryResponse(
-            answer="LLM Synthesis will be integrated in Week 10. Raw text and graph context retrieved successfully.",
+            answer=final_answer,
             sources=sources,
             graph_context=graph_items
         )
