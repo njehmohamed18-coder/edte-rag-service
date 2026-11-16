@@ -10,6 +10,7 @@ from src.models.domain import (
     QueryResponse,
 )
 from src.services.ingestion import ingestion_service
+from src.services.retrieval import retrieval_service
 
 
 @asynccontextmanager
@@ -34,7 +35,6 @@ def health_check() -> dict[str, str]:
 
 @app.post("/api/v1/rag/ingest/text", response_model=IngestResponse, tags=["Ingestion"])
 def ingest_text_payload(request: IngestTextRequest) -> IngestResponse:
-    """Ingest a direct text payload into the GraphRAG engine."""
     try:
         return ingestion_service.ingest_text(
             doc_id=request.doc_id,
@@ -48,7 +48,6 @@ def ingest_text_payload(request: IngestTextRequest) -> IngestResponse:
 
 @app.post("/api/v1/rag/ingest/file", response_model=IngestResponse, tags=["Ingestion"])
 async def ingest_multipart_file(file: UploadFile = File(...)) -> IngestResponse:
-    """Ingest a Markdown or PDF document via multipart form upload."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename missing")
     try:
@@ -65,12 +64,8 @@ async def ingest_multipart_file(file: UploadFile = File(...)) -> IngestResponse:
 
 @app.post("/api/v1/rag/query", response_model=QueryResponse, tags=["Retrieval"])
 def execute_rag_query(request: QueryRequest) -> QueryResponse:
-    """
-    Execute a hybrid GraphRAG query.
-    (Semantic retrieval and graph expansion logic will be activated in M3).
-    """
-    return QueryResponse(
-        answer="Query pipeline API initialized. Hybrid search active in Milestone 3.",
-        sources=[],
-        graph_context=[]
-    )
+    """Execute a hybrid GraphRAG query to retrieve semantic text and graph topology context."""
+    try:
+        return retrieval_service.execute_query(request)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
