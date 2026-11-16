@@ -19,6 +19,44 @@ MERGE (d)-[:CONTAINS]->(c)
 RETURN c.urn AS urn
 """
 
+LINK_CYPHER_BY_PREFIX: dict[str, str] = {
+    "urn:system:": """
+    MATCH (c:DocumentChunk {urn: $chunk_urn})
+    MERGE (target:System {urn: $target_urn})
+    ON CREATE SET target.name = $target_name
+    MERGE (c)-[:REFERENCES]->(target)
+    RETURN target.urn AS urn
+    """,
+    "urn:resource:": """
+    MATCH (c:DocumentChunk {urn: $chunk_urn})
+    MERGE (target:Resource {urn: $target_urn})
+    ON CREATE SET target.name = $target_name, target.type =$resource_type
+    MERGE (c)-[:REFERENCES]->(target)
+    RETURN target.urn AS urn
+    """,
+    "urn:role:": """
+    MATCH (c:DocumentChunk {urn: $chunk_urn})
+    MERGE (target:Role {urn: $target_urn})
+    ON CREATE SET target.name = $target_name
+    MERGE (c)-[:REFERENCES]->(target)
+    RETURN target.urn AS urn
+    """,
+    "urn:actor:": """
+    MATCH (c:DocumentChunk {urn: $chunk_urn})
+    MERGE (target:Actor {urn: $target_urn})
+    ON CREATE SET target.name = $target_name
+    MERGE (c)-[:REFERENCES]->(target)
+    RETURN target.urn AS urn
+    """,
+}
+
+
+def _parse_urn_metadata(target_urn: str) -> tuple[str, str]:
+    parts = target_urn.split(":")
+    name = parts[-1] if parts else target_urn
+    resource_type = parts[3].capitalize() if len(parts) >= 5 and parts[1] == "resource" else "Unknown"
+    return name, resource_type
+
 
 class GraphRAGRepository:
     def __init__(self, client: Neo4jClient | None = None) -> None:
@@ -50,16 +88,28 @@ class GraphRAGRepository:
             )
         return len(chunks)
 
-    def list_indexed_chunks(self) -> list[dict[str, Any]]:
-        query = """
-        MATCH (d:Document)-[:CONTAINS]->(c:DocumentChunk)
-        OPTIONAL MATCH (c)-[:REFERENCES]->(target)
-        RETURN d.urn AS document_urn,
-               d.title AS title,
-               c.urn AS chunk_urn,
-               c.chunk_index AS chunk_index,
-               c.text AS text,
-               collect(DISTINCT target.urn) AS referenced_urns
-        ORDER BY d.urn, c.chunk_index
-        """
-        return self.client.execute_query(query)
+    def link_chunk_references(
+        self,
+        chunk_urn: str,
+        referenced_urns: list[str],
+    ) -> int:
+        linked_count = 0
+        for target_urn in referenced_urns:
+            for prefix, cypher in LINK_CYPHER_BY_PREFIX.items():
+                if target_urn.startswith(prefix):
+                    target_name, resource_type = _parse_urn_metadata(target_urn)
+                    self.client.execute_query(
+                        cypher,
+                        {
+                            "chunk_urn": chunk_urn,
+                            "target_urn": target_urn,
+                            "target_name": target_name,
+                            "resource_type": resource_type,
+                        },
+                    )
+                    linked_count += 1
+                    break
+        return linked_count
+
+
+graph_repository = GraphRAGRepository()
