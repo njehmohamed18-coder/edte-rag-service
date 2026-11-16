@@ -73,5 +73,26 @@ class IngestionService:
             raw_text=raw_text,
         )
 
+    def ingest_uploaded_bytes(
+        self,
+        filename: str,
+        file_bytes: bytes,
+    ) -> IngestResponse:
+        path_obj = Path(filename)
+        suffix = path_obj.suffix.lower()
+        if suffix == ".pdf":
+            raw_text = extract_text_from_pdf_bytes(file_bytes)
+        elif suffix in {".md", ".txt", ".markdown"}:
+            raw_text = file_bytes.decode("utf-8")
+        else:
+            raise ValueError(f"Unsupported upload format: '{suffix}'")
+
+        return self.ingest_text(
+            doc_id=path_obj.stem,
+            title=path_obj.name,
+            uri=f"upload://{path_obj.name}",
+            raw_text=raw_text,
+        )
+
 
 ingestion_service = IngestionService()
